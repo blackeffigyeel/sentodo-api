@@ -58,7 +58,5 @@ tests/           unit and integration
 ## Known limitations
 
 * All providers, BVN lookups and phone codes are **mocks** (see `src/providers/mock`).
-* The MongoDB repositories are type-checked but were not run against a live MongoDB here.
 * `prisma/migrations` was written by hand; verify with `prisma migrate diff` before first production use.
 * A transaction whose provider keeps failing transiently after all retries stays `PROCESSING` and needs reconciliation.
-* The Dockerfile keeps the base image from your example (`alpine3.18` is end-of-life); consider moving to a current Alpine tag.
