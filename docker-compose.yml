@@ -1,0 +1,81 @@
+# Local development stack: API, queue worker, PostgreSQL, MongoDB, Redis and a mail catcher.
+# Usage: cp .env.example .env && docker compose up --build
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://sentodo:sentodo@postgres:5432/sentodo
+    MONGODB_URI: mongodb://mongo:27017/sentodo
+    REDIS_URL: redis://redis:6379
+    SMTP_HOST: mailpit
+    SMTP_PORT: "1025"
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    mongo:
+      condition: service_started
+    redis:
+      condition: service_healthy
+
+services:
+  api:
+    <<: *app
+    ports:
+      - "3208:3208"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3208/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    <<: *app
+    command: ["npm", "run", "worker"]
+
+  # One-off: applies database migrations, then exits.
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://sentodo:sentodo@postgres:5432/sentodo
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sentodo
+      POSTGRES_PASSWORD: sentodo
+      POSTGRES_DB: sentodo
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentodo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Catches verification emails: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "8025:8025"
+
+volumes:
+  postgres-data:
+  mongo-data:

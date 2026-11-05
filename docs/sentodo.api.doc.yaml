@@ -1,0 +1,2796 @@
+# Sentodo MFB API (OpenAPI 3.0). Served at /docs (Swagger UI) and /docs/openapi.json.
+openapi: 3.0.3
+info:
+  title: Sentodo MFB API
+  version: 1.0.0
+  description: 'Sentodo Microfinance Bank (Sentodo MFB) API: buy airtime, data, electricity, education pins, TV subscriptions
+    and food, and send money (p2p and to other banks).
+
+
+    ## Conventions
+
+
+    **Response envelope.** Every response, success or failure, has the same shape:
+
+
+    ```json
+
+    { "success": true, "message": "Account retrieved", "data": { } }
+
+    ```
+
+
+    On failure `success` is `false` and `data` is `null` or carries safe context (for example validation `issues`).
+
+
+    **Money is integer kobo.** All amounts are integers in kobo (1 NGN = 100 kobo): `250000` is ₦2,500.00. Responses return
+    `{ "kobo": 250000, "display": "₦2,500.00" }`; `display` is for people only.
+
+
+    **Profiles and accounts.** A user is a *profile* (individual or corporate). A profile can hold several 10-digit *accounts*.
+    Individual and corporate profiles both receive discounts on bill payments (1% and 2.5%).
+
+
+    **Asynchronous money movement.** Transfers and bill payments return **202** with `PROCESSING` after debiting the account;
+    a background queue completes them. Poll `GET /transactions/{id}`. Failures are refunded automatically.
+
+
+    **Idempotency.** Send `Idempotency-Key` on every transfer and purchase.
+
+
+    **Nigerian formats.** Phone numbers: 11 digits (`+234` accepted). Account numbers: 10 digits. DStv/GOtv IUC numbers: 10
+    digits.
+
+
+    ## Authentication
+
+
+    * **Bearer token** (`POST /auth/login`) for people using apps.
+
+    * **API key** (`x-api-key`) for corporate integrations. Keys only work from allowlisted IP addresses. See the Corporate
+    API guide.
+
+
+    ## Rate limiting
+
+
+    Limits are per client (profile or API key when authenticated, otherwise IP) and per policy: `global`, `auth`, `standard`,
+    `transactions`, `identity`. Costlier endpoints use more of the allowance. Responses include `X-RateLimit-Limit` and `X-RateLimit-Remaining`;
+    `429` adds `Retry-After`.
+
+
+    ## Provider simulation
+
+
+    All providers are mocks. Deterministic triggers: a customer number or account number ending in `0000` is declined (and
+    refunded); an account number ending in `9999` cannot be resolved. Test BVNs are listed under *Verify identity*; any of
+    the configured 6-digit codes verifies a phone.'
+  contact:
+    name: Sentodo Microfinance Bank
+servers:
+- url: /api/v1
+  description: This server
+tags:
+- name: Auth
+- name: Profiles
+- name: Accounts
+- name: Banks
+- name: Transfers
+- name: Transactions
+- name: Bills
+- name: API Keys
+- name: Command Centre
+- name: System
+paths:
+  /health:
+    get:
+      tags:
+      - System
+      summary: Liveness probe
+      description: Returns 200 while the process is running.
+      operationId: healthLive
+      security: []
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+                      uptimeSeconds:
+                        type: integer
+  /health/ready:
+    get:
+      tags:
+      - System
+      summary: Readiness probe
+      description: Checks PostgreSQL, MongoDB and Redis. Returns 503 if any dependency is down.
+      operationId: healthReady
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      checks:
+                        type: object
+                        additionalProperties:
+                          type: boolean
+                        example:
+                          postgresql: true
+                          mongodb: true
+                          redis: true
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /auth/register:
+    post:
+      tags:
+      - Auth
+      summary: Register a profile
+      description: Creates an **unverified** profile and emails a 6-digit verification code (sent through a queue). A *profile*
+        is a user; once email and phone are verified, the first 10-digit account is created automatically. Individuals need
+        `firstName` and `lastName`; corporates need `businessName`. Phone numbers are 11-digit Nigerian mobiles (`+234` and
+        `234` forms are normalised).
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              type: INDIVIDUAL
+              email: adaeze@example.com
+              phone: 08031234567
+              password: Password123
+              firstName: Adaeze
+              lastName: Okonkwo
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      profile:
+                        $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /auth/verify-email:
+    post:
+      tags:
+      - Auth
+      summary: Verify email address
+      description: Verifies the emailed code. After five wrong attempts the code is locked; request a new one.
+      operationId: verifyEmail
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+            example:
+              email: adaeze@example.com
+              code: '482913'
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      profile:
+                        $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/verify-phone:
+    post:
+      tags:
+      - Auth
+      summary: Verify phone number
+      description: No SMS is sent. Any code from the configured list of 6-digit codes (`MOCK_PHONE_CODES`, default `123456`,
+        `654321`, `246810`, `135790`) verifies the number.
+      operationId: verifyPhone
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyPhoneRequest'
+            example:
+              phone: 08031234567
+              code: '123456'
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      profile:
+                        $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/resend-email-code:
+    post:
+      tags:
+      - Auth
+      summary: Resend the email code
+      description: Always answers 200 so it cannot be used to discover which emails are registered.
+      operationId: resendEmailCode
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+              required:
+              - email
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    nullable: true
+                    example: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/login:
+    post:
+      tags:
+      - Auth
+      summary: Sign in
+      description: Returns a bearer token. Email and phone must both be verified.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: adaeze@example.com
+              password: Password123
+      responses:
+        '200':
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                      tokenType:
+                        type: string
+                        example: Bearer
+                      expiresInSeconds:
+                        type: integer
+                        example: 3600
+                      profile:
+                        $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /auth/verify-token:
+    post:
+      tags:
+      - Auth
+      summary: Verify an access token
+      description: Confirms that a token is genuine, unexpired and that its profile is still active. Useful for services that
+        receive Sentodo tokens.
+      operationId: verifyToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+              required:
+              - token
+      responses:
+        '200':
+          description: Valid
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      valid:
+                        type: boolean
+                        example: true
+                      profileId:
+                        type: string
+                        format: uuid
+                      profileType:
+                        $ref: '#/components/schemas/ProfileType'
+                      expiresAt:
+                        type: string
+                        format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /profiles/me:
+    get:
+      tags:
+      - Profiles
+      summary: Get my profile
+      description: Rate limited (see **Rate limiting**).
+      operationId: getMyProfile
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      profile:
+                        $ref: '#/components/schemas/Profile'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /profiles/me/identity:
+    post:
+      tags:
+      - Profiles
+      summary: Verify identity (BVN)
+      description: 'Verifies the profile against the BVN registry (mock). Individuals must match the registered name. One
+        BVN can back one profile. **Identity verification is required before any money can leave an account.** Each lookup
+        has a cost recorded for reporting. Test BVNs: `22222222221` (Adaeze Okonkwo), `22222222222` (Tunde Bakare), `22222222223`
+        (Fatima Bello), `22222222224` (Chinedu Eze), `22222222225` (Ngozi Adeyemi).'
+      operationId: verifyIdentity
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bvn:
+                  type: string
+                  pattern: ^\d{11}$
+                  example: '22222222221'
+              required:
+              - bvn
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      profile:
+                        $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /accounts:
+    get:
+      tags:
+      - Accounts
+      summary: List my accounts
+      operationId: listAccounts
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      accounts:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    post:
+      tags:
+      - Accounts
+      summary: Open another account
+      description: A profile can hold up to 5 accounts, each with its own 10-digit number.
+      operationId: createAccount
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 80
+                  example: Savings
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      account:
+                        $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /accounts/{id}:
+    get:
+      tags:
+      - Accounts
+      summary: Get an account
+      description: Accounts that belong to other profiles are reported as 404.
+      operationId: getAccount
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Resource id
+      responses:
+        '200':
+          description: Account
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      account:
+                        $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /accounts/{id}/fund:
+    post:
+      tags:
+      - Accounts
+      summary: Fund an account (sandbox)
+      description: 'Credits test money. **Disabled by default**: an operator must switch on `sandbox-funding` in the command
+        centre. Amount is integer kobo, at most ₦1,000,000.'
+      operationId: fundAccount
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Resource id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  $ref: '#/components/schemas/KoboAmount'
+              required:
+              - amount
+            example:
+              amount: 5000000
+      responses:
+        '200':
+          description: Funded
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      account:
+                        $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /banks:
+    get:
+      tags:
+      - Banks
+      summary: List banks
+      description: Nigerian banks with CBN codes, including Sentodo MFB (`090`).
+      operationId: listBanks
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Banks
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      banks:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Bank'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /banks/resolve:
+    get:
+      tags:
+      - Banks
+      summary: Resolve an account name (name enquiry)
+      description: 'Sentodo accounts are resolved locally and flagged `isSentodo: true` (such transfers are p2p). Other banks
+        are resolved through the transfer provider.'
+      operationId: resolveAccount
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - name: bankCode
+        in: query
+        required: true
+        schema:
+          type: string
+          example: 058
+      - name: accountNumber
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: ^\d{10}$
+          example: 0123456789
+      responses:
+        '200':
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      accountNumber:
+                        type: string
+                      accountName:
+                        type: string
+                        example: OLUWASEUN ADEBAYO
+                      bankCode:
+                        type: string
+                      bankName:
+                        type: string
+                      isSentodo:
+                        type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /transfers/quote:
+    post:
+      tags:
+      - Transfers
+      summary: Quote a transfer
+      description: 'Resolves the recipient and prices the transfer without moving money. Fees: free for the first **20** (individual)
+        or **10** (corporate) transfers each calendar month (Lagos time); afterwards ₦10 + 7.5% VAT, plus ₦50 (before VAT)
+        above ₦10,000.'
+      operationId: quoteTransfer
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferRequest'
+            example:
+              fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
+              bankCode: 090
+              accountNumber: 0123456789
+              amount: 250000
+              narration: Rent share
+      responses:
+        '200':
+          description: Quote
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/TransferQuote'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /transfers:
+    post:
+      tags:
+      - Transfers
+      summary: Send money
+      description: Debits the sender immediately and returns **202** with status `PROCESSING`. The recipient is credited (or
+        the other bank called) by a background queue. Poll `GET /transactions/{id}` for `SUCCESS` or `FAILED`; failures are
+        refunded automatically. A Sentodo recipient (`bankCode` `090`) makes this a p2p transfer. Send an `Idempotency-Key`
+        so retries never double-charge. **Requires identity verification.**
+      operationId: createTransfer
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferRequest'
+            example:
+              fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
+              bankCode: 090
+              accountNumber: 0123456789
+              amount: 250000
+              narration: Rent share
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      transaction:
+                        $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /transactions:
+    get:
+      tags:
+      - Transactions
+      summary: List transactions
+      description: Newest first. Use `nextCursor` as `before` for the next page.
+      operationId: listTransactions
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: before
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: accountId
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: type
+        in: query
+        schema:
+          $ref: '#/components/schemas/TransactionType'
+      - name: status
+        in: query
+        schema:
+          $ref: '#/components/schemas/TransactionStatus'
+      responses:
+        '200':
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      transactions:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Transaction'
+                      nextCursor:
+                        type: string
+                        format: date-time
+                        nullable: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /transactions/{id}:
+    get:
+      tags:
+      - Transactions
+      summary: Get a transaction
+      description: Accepts the transaction id or its reference (`SNT-…`).
+      operationId: getTransaction
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      transaction:
+                        $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /bills/catalogue/airtime:
+    get:
+      tags:
+      - Bills
+      summary: Airtime catalogue
+      description: Networks (MTN, AIRTEL, GLO, 9MOBILE) and the allowed amount range. Prices are integer kobo.
+      operationId: catalogue_airtime
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /bills/catalogue/data:
+    get:
+      tags:
+      - Bills
+      summary: Data catalogue
+      description: Data plans. Filter with `?network=`. Prices are integer kobo.
+      operationId: catalogue_data
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - name: network
+        in: query
+        schema:
+          type: string
+          enum:
+          - MTN
+          - AIRTEL
+          - GLO
+          - 9MOBILE
+      responses:
+        '200':
+          description: Catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /bills/catalogue/electricity:
+    get:
+      tags:
+      - Bills
+      summary: Electricity catalogue
+      description: Distribution companies, meter types and limits. Prices are integer kobo.
+      operationId: catalogue_electricity
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /bills/catalogue/education:
+    get:
+      tags:
+      - Bills
+      summary: Education catalogue
+      description: WAEC, NECO and JAMB products. Prices are integer kobo.
+      operationId: catalogue_education
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /bills/catalogue/tv:
+    get:
+      tags:
+      - Bills
+      summary: Tv catalogue
+      description: DStv and GOtv bouquets. Filter with `?operator=`. Prices are integer kobo.
+      operationId: catalogue_tv
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - name: operator
+        in: query
+        schema:
+          type: string
+          enum:
+          - DSTV
+          - GOTV
+      responses:
+        '200':
+          description: Catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /bills/catalogue/food:
+    get:
+      tags:
+      - Bills
+      summary: Food catalogue
+      description: Restaurants, menus and the delivery fee. Prices are integer kobo.
+      operationId: catalogue_food
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: Catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /bills/tv/validate:
+    post:
+      tags:
+      - Bills
+      summary: Validate a TV smart card
+      description: The **only** category with customer validation. Returns the name on the DStv or GOtv account. IUC numbers
+        are exactly 10 digits.
+      operationId: validateTv
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operator:
+                  type: string
+                  enum:
+                  - DSTV
+                  - GOTV
+                iuc:
+                  type: string
+                  pattern: ^\d{10}$
+                  example: '7012345678'
+              required:
+              - operator
+              - iuc
+      responses:
+        '200':
+          description: Validated
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      operator:
+                        type: string
+                      iuc:
+                        type: string
+                      customerName:
+                        type: string
+                        example: OKONKWO ADAEZE C
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /bills/quote:
+    post:
+      tags:
+      - Bills
+      summary: Quote a bill
+      description: 'Prices any bill without charging. Send the same fields as the purchase endpoint plus `category`. Discounts:
+        1% individual, 2.5% corporate.'
+      operationId: quoteBill
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - category
+              - fromAccountId
+              additionalProperties: true
+              properties:
+                category:
+                  type: string
+                  enum:
+                  - AIRTIME
+                  - DATA
+                  - ELECTRICITY
+                  - EDUCATION
+                  - TV
+                  - FOOD
+                fromAccountId:
+                  type: string
+                  format: uuid
+            example:
+              category: DATA
+              fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
+              planCode: mtn-1.5gb-30days
+              phone: 08031234567
+      responses:
+        '200':
+          description: Quote
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/BillQuote'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /bills/airtime:
+    post:
+      tags:
+      - Bills
+      summary: Buy airtime
+      description: Amount is integer kobo, ₦50 to ₦50,000. Debits the account immediately (amount minus discount) and returns
+        **202**; the provider is called by a background queue and failures are refunded. Send an `Idempotency-Key`. **Requires
+        identity verification.**
+      operationId: buy_airtime
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fromAccountId:
+                  type: string
+                  format: uuid
+                network:
+                  type: string
+                  enum:
+                  - MTN
+                  - AIRTEL
+                  - GLO
+                  - 9MOBILE
+                phone:
+                  type: string
+                  example: 08031234567
+                  description: 11-digit Nigerian mobile number
+                amount:
+                  $ref: '#/components/schemas/KoboAmount'
+              required:
+              - fromAccountId
+              - network
+              - phone
+              - amount
+            example:
+              fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
+              network: MTN
+              phone: 08031234567
+              amount: 100000
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      transaction:
+                        $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /bills/data:
+    post:
+      tags:
+      - Bills
+      summary: Buy a data plan
+      description: The catalogue price is always used; any amount you send is ignored. Debits the account immediately (amount
+        minus discount) and returns **202**; the provider is called by a background queue and failures are refunded. Send
+        an `Idempotency-Key`. **Requires identity verification.**
+      operationId: buy_data
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fromAccountId:
+                  type: string
+                  format: uuid
+                planCode:
+                  type: string
+                  example: mtn-1.5gb-30days
+                phone:
+                  type: string
+                  example: 08031234567
+                  description: 11-digit Nigerian mobile number
+              required:
+              - fromAccountId
+              - planCode
+              - phone
+            example:
+              fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
+              planCode: mtn-1.5gb-30days
+              phone: 08031234567
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      transaction:
+                        $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /bills/electricity:
+    post:
+      tags:
+      - Bills
+      summary: Buy electricity
+      description: Meter numbers are 11 to 13 digits. The meter token appears in `details.token` once the transaction succeeds.
+        ₦500 to ₦200,000. Debits the account immediately (amount minus discount) and returns **202**; the provider is called
+        by a background queue and failures are refunded. Send an `Idempotency-Key`. **Requires identity verification.**
+      operationId: buy_electricity
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fromAccountId:
+                  type: string
+                  format: uuid
+                disco:
+                  type: string
+                  example: IKEDC
+                meterNumber:
+                  type: string
+                  example: '12345678901'
+                meterType:
+                  type: string
+                  enum:
+                  - PREPAID
+                  - POSTPAID
+                amount:
+                  $ref: '#/components/schemas/KoboAmount'
+              required:
+              - fromAccountId
+              - disco
+              - meterNumber
+              - meterType
+              - amount
+            example:
+              fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
+              disco: IKEDC
+              meterNumber: '12345678901'
+              meterType: PREPAID
+              amount: 500000
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      transaction:
+                        $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /bills/education:
+    post:
+      tags:
+      - Bills
+      summary: Buy an education PIN
+      description: The PIN appears in `details.token` once the transaction succeeds. Debits the account immediately (amount
+        minus discount) and returns **202**; the provider is called by a background queue and failures are refunded. Send
+        an `Idempotency-Key`. **Requires identity verification.**
+      operationId: buy_education
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fromAccountId:
+                  type: string
+                  format: uuid
+                productCode:
+                  type: string
+                  example: WAEC_RESULT
+                phone:
+                  type: string
+                  example: 08031234567
+                  description: 11-digit Nigerian mobile number
+              required:
+              - fromAccountId
+              - productCode
+              - phone
+            example:
+              fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
+              productCode: WAEC_RESULT
+              phone: 08031234567
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      transaction:
+                        $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /bills/tv:
+    post:
+      tags:
+      - Bills
+      summary: Subscribe to DStv or GOtv
+      description: The smart card is validated first; unknown cards are rejected without charging. Debits the account immediately
+        (amount minus discount) and returns **202**; the provider is called by a background queue and failures are refunded.
+        Send an `Idempotency-Key`. **Requires identity verification.**
+      operationId: buy_tv
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fromAccountId:
+                  type: string
+                  format: uuid
+                operator:
+                  type: string
+                  enum:
+                  - DSTV
+                  - GOTV
+                iuc:
+                  type: string
+                  example: '7012345678'
+                bouquetCode:
+                  type: string
+                  example: dstv-compact
+              required:
+              - fromAccountId
+              - operator
+              - iuc
+              - bouquetCode
+            example:
+              fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
+              operator: DSTV
+              iuc: '7012345678'
+              bouquetCode: dstv-compact
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      transaction:
+                        $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /bills/food:
+    post:
+      tags:
+      - Bills
+      summary: Order food
+      description: Total is the sum of items plus the delivery fee. Debits the account immediately (amount minus discount)
+        and returns **202**; the provider is called by a background queue and failures are refunded. Send an `Idempotency-Key`.
+        **Requires identity verification.**
+      operationId: buy_food
+      security:
+      - bearerAuth: []
+      - apiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fromAccountId:
+                  type: string
+                  format: uuid
+                restaurantCode:
+                  type: string
+                  example: mama-put
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: jollof-chicken
+                      quantity:
+                        type: integer
+                        minimum: 1
+                        maximum: 20
+                    required:
+                    - code
+                    - quantity
+                deliveryPhone:
+                  type: string
+                  example: 08031234567
+                  description: 11-digit Nigerian mobile number
+              required:
+              - fromAccountId
+              - restaurantCode
+              - items
+              - deliveryPhone
+            example:
+              fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
+              restaurantCode: mama-put
+              items:
+              - code: jollof-chicken
+                quantity: 2
+              deliveryPhone: 08031234567
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      transaction:
+                        $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api-keys:
+    get:
+      tags:
+      - API Keys
+      summary: List API keys
+      description: Corporate profiles only. Keys are managed with a **signed-in session (bearer token)**, never with an API
+        key.
+      operationId: listApiKeys
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Keys
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      apiKeys:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ApiKey'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    post:
+      tags:
+      - API Keys
+      summary: Create an API key
+      description: Corporate profiles only. Keys are managed with a **signed-in session (bearer token)**, never with an API
+        key. The raw key is returned **once** and only its hash is stored. At least one allowed IP is required; the key works
+        only from allowlisted addresses (IPv4 or IPv6). Up to 10 active keys.
+      operationId: createApiKey
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: Production
+                allowedIps:
+                  type: array
+                  items:
+                    type: string
+              required:
+              - name
+              - allowedIps
+            example:
+              name: Production
+              allowedIps:
+              - 41.58.1.9
+              - 102.89.0.4
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      apiKey:
+                        $ref: '#/components/schemas/ApiKey'
+                      key:
+                        type: string
+                        example: sk_live_9f2c…
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api-keys/{id}/allowlist:
+    patch:
+      tags:
+      - API Keys
+      summary: Replace the IP allowlist
+      description: Corporate profiles only. Keys are managed with a **signed-in session (bearer token)**, never with an API
+        key.
+      operationId: updateAllowlist
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Resource id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                allowedIps:
+                  type: array
+                  items:
+                    type: string
+              required:
+              - allowedIps
+            example:
+              allowedIps:
+              - 102.89.0.4
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      apiKey:
+                        $ref: '#/components/schemas/ApiKey'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api-keys/{id}:
+    delete:
+      tags:
+      - API Keys
+      summary: Revoke an API key
+      description: Corporate profiles only. Keys are managed with a **signed-in session (bearer token)**, never with an API
+        key. Revocation is permanent.
+      operationId: revokeApiKey
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Resource id
+      responses:
+        '200':
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      apiKey:
+                        $ref: '#/components/schemas/ApiKey'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /command-centre/states:
+    get:
+      tags:
+      - Command Centre
+      summary: Get every feature and provider state
+      description: 'The App Command Centre decides whether each feature and provider may run. Every service consults it before
+        working. Switch-offs return **503** with the feature or provider in `data`. `platform` is a master switch. Available
+        to any authorised client: service token, bearer token or API key.'
+      operationId: getStates
+      security:
+      - serviceToken: []
+      - bearerAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: States
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/CommandCentreSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /command-centre/states/{key}:
+    patch:
+      tags:
+      - Command Centre
+      summary: Switch a feature or provider on or off
+      description: Internal operators only (service token). Use a feature key such as `bills.tv` or a provider identifier
+        such as `mock-tv-dstv`. A `reason` is shown to clients while something is off. Every change is audit-logged.
+      operationId: setState
+      security:
+      - serviceToken: []
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          example: bills.tv
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                reason:
+                  type: string
+                  maxLength: 200
+              required:
+              - enabled
+            example:
+              enabled: false
+              reason: Provider maintenance
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - success
+                - message
+                - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      key:
+                        type: string
+                      enabled:
+                        type: boolean
+                      reason:
+                        type: string
+                        nullable: true
+                      updatedAt:
+                        type: string
+                        format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorised'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token from `POST /auth/login`.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Corporate API key (`sk_live_…`). Only usable from allowlisted IP addresses.
+    serviceToken:
+      type: apiKey
+      in: header
+      name: x-service-token
+      description: Internal service token for operators and trusted services.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 'Unique value (8-64 chars: letters, digits, `-`, `_`) per logical request. Retrying with the same key returns
+        the original transaction instead of charging twice. Strongly recommended for every money-moving call.'
+      schema:
+        type: string
+        pattern: ^[\w-]{8,64}$
+        example: order-2026-11-05-0001
+  responses:
+    BadRequest:
+      description: Validation failed or the request is invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Validation failed
+            data:
+              issues:
+              - path: amount
+                message: Must be an integer number of kobo
+    Unauthorised:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Authentication is required
+            data: null
+    Forbidden:
+      description: Not permitted (unverified identity, wrong profile type, IP not allowlisted)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Verify your identity before making transactions
+            data: null
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Resource not found
+            data: null
+    Conflict:
+      description: Conflicts with existing data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: A profile with this email or phone number already exists
+            data: null
+    Unprocessable:
+      description: Well-formed but cannot be processed, e.g. insufficient funds
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Insufficient funds
+            data:
+              balance: 100000
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Too many requests. Please slow down.
+            data:
+              retryAfterSeconds: 2
+    Unavailable:
+      description: Switched off by the command centre, or a dependency is down
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: This service is temporarily unavailable
+            data:
+              feature: bills.airtime
+              reason: Aggregator outage
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required:
+      - success
+      - message
+      - data
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+        data:
+          nullable: true
+          example: null
+    KoboAmount:
+      type: integer
+      minimum: 1
+      description: '**Integer kobo** (1 NGN = 100 kobo). 250000 means ₦2,500.00. Decimals and strings are rejected.'
+      example: 250000
+    Money:
+      type: object
+      properties:
+        kobo:
+          type: integer
+          example: 250000
+        display:
+          type: string
+          example: ₦2,500.00
+          description: For display only. Never parse this value.
+      required:
+      - kobo
+      - display
+    ProfileType:
+      type: string
+      enum:
+      - INDIVIDUAL
+      - CORPORATE
+    TransactionType:
+      type: string
+      enum:
+      - P2P_TRANSFER
+      - EXTERNAL_TRANSFER
+      - AIRTIME
+      - DATA
+      - ELECTRICITY
+      - EDUCATION
+      - TV
+      - FOOD
+      - FUNDING
+    TransactionStatus:
+      type: string
+      enum:
+      - PENDING
+      - PROCESSING
+      - SUCCESS
+      - FAILED
+    RegisterRequest:
+      type: object
+      required:
+      - type
+      - email
+      - phone
+      - password
+      properties:
+        type:
+          $ref: '#/components/schemas/ProfileType'
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          example: 08031234567
+        password:
+          type: string
+          minLength: 8
+          maxLength: 72
+          description: At least one letter and one digit
+        firstName:
+          type: string
+        lastName:
+          type: string
+        businessName:
+          type: string
+          description: Corporate profiles
+    VerifyEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          pattern: ^\d{6}$
+      required:
+      - email
+      - code
+    VerifyPhoneRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+        code:
+          type: string
+          pattern: ^\d{6}$
+      required:
+      - phone
+      - code
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+      - email
+      - password
+    Profile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/ProfileType'
+        email:
+          type: string
+        phone:
+          type: string
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        businessName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - SUSPENDED
+        emailVerified:
+          type: boolean
+        phoneVerified:
+          type: boolean
+        identityVerified:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    Account:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountNumber:
+          type: string
+          pattern: ^\d{10}$
+          example: 0123456789
+        name:
+          type: string
+        currency:
+          type: string
+          example: NGN
+        balance:
+          $ref: '#/components/schemas/Money'
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - FROZEN
+          - CLOSED
+        createdAt:
+          type: string
+          format: date-time
+    Bank:
+      type: object
+      properties:
+        code:
+          type: string
+          example: 058
+        name:
+          type: string
+          example: Guaranty Trust Bank
+    TransferRequest:
+      type: object
+      required:
+      - fromAccountId
+      - bankCode
+      - accountNumber
+      - amount
+      properties:
+        fromAccountId:
+          type: string
+          format: uuid
+        bankCode:
+          type: string
+          description: '`090` for Sentodo (p2p)'
+        accountNumber:
+          type: string
+          pattern: ^\d{10}$
+        amount:
+          $ref: '#/components/schemas/KoboAmount'
+        narration:
+          type: string
+          maxLength: 100
+      description: Minimum ₦1.00, maximum ₦5,000,000.00 per transfer.
+    TransferQuote:
+      type: object
+      properties:
+        amount:
+          $ref: '#/components/schemas/Money'
+        fee:
+          type: object
+          properties:
+            waived:
+              type: boolean
+            base:
+              $ref: '#/components/schemas/Money'
+            surcharge:
+              $ref: '#/components/schemas/Money'
+            vat:
+              $ref: '#/components/schemas/Money'
+            total:
+              $ref: '#/components/schemas/Money'
+        totalDebit:
+          $ref: '#/components/schemas/Money'
+        freeTransfersRemaining:
+          type: integer
+        recipient:
+          type: object
+          properties:
+            accountName:
+              type: string
+            bankName:
+              type: string
+            isSentodo:
+              type: boolean
+    BillQuote:
+      type: object
+      properties:
+        amount:
+          $ref: '#/components/schemas/Money'
+        discount:
+          $ref: '#/components/schemas/Money'
+        totalDebit:
+          $ref: '#/components/schemas/Money'
+        narration:
+          type: string
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          example: SNT-LZ3K9A1B-4F2A9C1B
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        accountId:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        fee:
+          $ref: '#/components/schemas/Money'
+        discount:
+          $ref: '#/components/schemas/Money'
+        totalDebit:
+          type: object
+          properties:
+            kobo:
+              type: integer
+            display:
+              type: string
+            description: amount + fee - discount
+        feeWaived:
+          type: boolean
+        counterparty:
+          nullable: true
+          type: object
+          properties:
+            name:
+              type: string
+            bank:
+              type: string
+              nullable: true
+        provider:
+          type: string
+          nullable: true
+        providerReference:
+          type: string
+          nullable: true
+        narration:
+          type: string
+          nullable: true
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Only when `SUCCESS`. Includes `token` for electricity, education and food.
+        failureReason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+          example: sk_live_9f2c
+        allowedIps:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - REVOKED
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+    StateView:
+      type: object
+      properties:
+        key:
+          type: string
+          example: bills.tv
+        kind:
+          type: string
+          enum:
+          - FEATURE
+          - PROVIDER
+        enabled:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+    CommandCentreSnapshot:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/StateView'
+        providers:
+          type: array
+          items:
+            allOf:
+            - $ref: '#/components/schemas/StateView'
+            - type: object
+              properties:
+                name:
+                  type: string
+                  example: DSTV (mock)
+                category:
+                  type: string
+                  example: TV

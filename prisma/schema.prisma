@@ -1,0 +1,205 @@
+// Sentodo PostgreSQL schema (financial source of truth).
+// All monetary columns are BigInt and hold kobo (integer minor units). Never floats.
+
+generator client {
+  provider   = "prisma-client-js"
+  // Engine-free client: queries run through the pg driver adapter (src/integrations/prisma.ts).
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProfileType {
+  INDIVIDUAL
+  CORPORATE
+}
+
+enum ProfileStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum TransactionType {
+  P2P_TRANSFER
+  EXTERNAL_TRANSFER
+  AIRTIME
+  DATA
+  ELECTRICITY
+  EDUCATION
+  TV
+  FOOD
+  FUNDING
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum CostType {
+  FREE_TRANSFER
+  IDENTITY_VERIFICATION
+  SMS_OTP
+  EMAIL
+  PROVIDER_PURCHASE
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
+model Profile {
+  id                 String        @id @default(uuid())
+  type               ProfileType
+  email              String        @unique
+  phone              String        @unique
+  passwordHash       String
+  firstName          String?
+  lastName           String?
+  businessName       String?
+  /// SHA-256 of the verified BVN, so one BVN cannot back two profiles.
+  bvnHash            String?       @unique
+  status             ProfileStatus @default(ACTIVE)
+  emailVerifiedAt    DateTime?
+  phoneVerifiedAt    DateTime?
+  identityVerifiedAt DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  accounts     Account[]
+  transactions Transaction[]
+  apiKeys      ApiKey[]
+  costRecords  CostRecord[]
+
+  @@map("profiles")
+}
+
+model Account {
+  id            String        @id @default(uuid())
+  accountNumber String        @unique @db.VarChar(10)
+  profileId     String
+  name          String
+  currency      String        @default("NGN") @db.VarChar(3)
+  /// Balance in kobo.
+  balance       BigInt        @default(0)
+  /// Optimistic-locking counter. Every balance mutation must match and increment it.
+  version       Int           @default(0)
+  status        AccountStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  profile       Profile        @relation(fields: [profileId], references: [id])
+  transactions  Transaction[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([profileId])
+  @@map("accounts")
+}
+
+model Transaction {
+  id                    String            @id @default(uuid())
+  reference             String            @unique
+  idempotencyKey        String?
+  profileId             String
+  accountId             String
+  type                  TransactionType
+  status                TransactionStatus @default(PENDING)
+  /// Principal amount in kobo.
+  amount                BigInt
+  /// Fee charged in kobo (includes VAT).
+  fee                   BigInt            @default(0)
+  /// Discount granted in kobo (bill payments).
+  discount              BigInt            @default(0)
+  /// Total debited from the sender in kobo: amount + fee - discount.
+  totalDebit            BigInt
+  feeWaived             Boolean           @default(false)
+  counterpartyAccountId String?
+  counterpartyName      String?
+  counterpartyBank      String?
+  provider              String?
+  providerReference     String?
+  narration             String?
+  metadata              Json?
+  failureReason         String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  profile       Profile       @relation(fields: [profileId], references: [id])
+  account       Account       @relation(fields: [accountId], references: [id])
+  ledgerEntries LedgerEntry[]
+
+  @@unique([profileId, idempotencyKey])
+  @@index([profileId, createdAt])
+  @@index([accountId, createdAt])
+  @@map("transactions")
+}
+
+model LedgerEntry {
+  id            String          @id @default(uuid())
+  transactionId String
+  accountId     String
+  direction     LedgerDirection
+  amount        BigInt
+  balanceAfter  BigInt
+  description   String?
+  createdAt     DateTime        @default(now())
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+  account     Account     @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createdAt])
+  @@map("ledger_entries")
+}
+
+model ApiKey {
+  id         String       @id @default(uuid())
+  profileId  String
+  name       String
+  /// First characters of the key, safe to display.
+  prefix     String
+  /// SHA-256 hash of the full key. The raw key is shown once and never stored.
+  keyHash    String       @unique
+  allowedIps String[]
+  status     ApiKeyStatus @default(ACTIVE)
+  lastUsedAt DateTime?
+  createdAt  DateTime     @default(now())
+  revokedAt  DateTime?
+
+  profile Profile @relation(fields: [profileId], references: [id])
+
+  @@index([profileId])
+  @@map("api_keys")
+}
+
+model CostRecord {
+  id        String   @id @default(uuid())
+  type      CostType
+  /// Cost to Sentodo in kobo.
+  amount    BigInt
+  profileId String?
+  reference String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  profile Profile? @relation(fields: [profileId], references: [id])
+
+  @@index([type, createdAt])
+  @@map("cost_records")
+}
