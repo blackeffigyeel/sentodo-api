@@ -1,4 +1,5 @@
 import type { Server } from 'http';
+import 'dotenv/config';
 import { createContainer } from './app.container';
 import { loadConfig } from './config/app.config';
 import { createApp } from './express.app';
