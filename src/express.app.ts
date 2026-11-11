@@ -1,6 +1,7 @@
 import cors from 'cors';
-import express, { type Express } from 'express';
+import express, { type Express, Request } from 'express';
 import helmet from 'helmet';
+import morgan from 'morgan';
 import path from 'path';
 import swaggerUi from 'swagger-ui-express';
 import { readFileSync, existsSync } from 'fs';
@@ -10,9 +11,41 @@ import { createAuthMiddleware } from './middleware/auth.middleware';
 import { createErrorHandler, notFoundHandler, requestId } from './middleware/error.middleware';
 import { createRateLimitMiddleware } from './middleware/rateLimit.middleware';
 import { createApiRouter } from './routes/api.routes';
+import type { Logger } from './utils/logger.util';
 
 /** Location of the OpenAPI document (copied into the Docker image alongside `dist`). */
 const OPENAPI_PATH = path.resolve(__dirname, '../docs/sentodo.api.doc.yaml');
+
+/**
+ * Builds the Morgan format string. Mirrors the standard combined format plus a
+ * request-id token at the end so every line can be correlated with app logs.
+ */
+const MORGAN_FORMAT =
+  ':remote-addr - :remote-user ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" [ReqId: :request-id]';
+
+/**
+ * Creates the Morgan middleware that forwards every HTTP line through the
+ * application logger, so requests land in the same JSON stream as the rest of
+ * the logs (and are redacted by the same rules).
+ * @param {Logger} logger - The application logger.
+ * @returns {express.RequestHandler} The Morgan middleware.
+ */
+function createHttpLogger(logger: Logger): express.RequestHandler {
+  morgan.token('request-id', (req: Request) => (req as { requestId?: string }).requestId ?? '-');
+
+  return morgan(MORGAN_FORMAT, {
+    stream: {
+      write: (message: string) => {
+        // Pull the request id back out of the formatted line so it is a first-class
+        // field on the log record, not just text in the message body.
+        const match = message.match(/\[ReqId: ([^\]]+)\]/);
+        const reqId = match ? match[1] : undefined;
+        const clean = message.replace(/\s*\[ReqId: [^\]]+\]\s*$/, '').trim();
+        logger.info(clean, reqId && reqId !== '-' ? { requestId: reqId } : undefined);
+      },
+    },
+  });
+}
 
 /**
  * Builds the Express application from a wired container. No sockets are opened here, so the
@@ -27,6 +60,7 @@ export function createApp(container: AppContainer): Express {
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
   app.use(requestId);
+  app.use(createHttpLogger(logger));
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors({ origin: config.corsOrigins.includes('*') ? true : config.corsOrigins }));
   app.use(express.json({ limit: '100kb' }));

@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
 
-  const prisma = await connectPrisma(config.databaseUrl, logger);
+  const prisma = await connectPrisma(config.database, logger);
   const mongo = await connectMongo(config.mongodbUri, logger);
   const redis = await connectRedis(config.redisUrl, logger);
 

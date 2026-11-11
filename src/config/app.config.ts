@@ -17,39 +17,75 @@ const booleanFromString = z
   .union([z.boolean(), z.string()])
   .transform((value) => (typeof value === 'boolean' ? value : ['true', '1', 'yes'].includes(value.toLowerCase())));
 
-const schema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(3208),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error', 'silent']).default('info'),
-  TRUST_PROXY: z.coerce.number().int().min(0).default(1),
-  CORS_ORIGINS: z.string().default('*'),
+/** PostgreSQL connection settings, mirroring the pg driver's connection options. */
+export interface DatabaseConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  name: string;
+  /** Enables TLS verified against the provider's CA certificate (e.g. Aiven). */
+  ssl: boolean;
+  /** PEM CA certificate — inline PEM or a path to a .pem file. Required when ssl is true. */
+  caCert?: string;
+}
 
-  DATABASE_URL: z.string().min(1),
-  MONGODB_URI: z.string().min(1),
-  REDIS_URL: z.string().min(1),
+const schema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().positive().default(3208),
+    LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error', 'silent']).default('info'),
+    TRUST_PROXY: z.coerce.number().int().min(0).default(1),
+    CORS_ORIGINS: z.string().default('*'),
 
-  JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
-  JWT_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(3600),
-  ADMIN_SERVICE_TOKEN: z.string().min(16, 'ADMIN_SERVICE_TOKEN must be at least 16 characters'),
+    // Discrete fields instead of a URL: managed clouds such as Aiven that need
+    // host/port/user/password plus a custom CA are configured the same way as
+    // a local instance.
+    DATABASE_HOST: z.string().min(1).default('localhost'),
+    DATABASE_PORT: z.coerce.number().int().positive().default(5432),
+    DATABASE_USER: z.string().min(1),
+    DATABASE_PASSWORD: z.string().min(1),
+    DATABASE_NAME: z.string().min(1),
+    /** Enables TLS and verifies the server against DATABASE_CA_CERT (e.g. Aiven). */
+    DATABASE_SSL: booleanFromString.default(false),
+    /** The provider's CA certificate — inline PEM or a path to a .pem file. */
+    DATABASE_CA_CERT: z.string().optional(),
 
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().int().positive().default(587),
-  SMTP_SECURE: booleanFromString.default(false),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
-  MAIL_FROM: z.string().default('Sentodo MFB <no-reply@sentodo.example>'),
+    MONGODB_URI: z.string().min(1),
+    REDIS_URL: z.string().min(1),
 
-  /** Mock phone OTP list: any code in this list verifies a phone number. */
-  MOCK_PHONE_CODES: z.string().default('123456,654321,246810,135790'),
-  VERIFICATION_CODE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
-  VERIFICATION_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+    JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
+    JWT_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(3600),
+    ADMIN_SERVICE_TOKEN: z.string().min(16, 'ADMIN_SERVICE_TOKEN must be at least 16 characters'),
 
-  RATE_LIMIT_ALGORITHM: z.enum(RATE_LIMIT_ALGORITHMS).default('token-bucket'),
-  RATE_LIMIT_STORE: z.enum(RATE_LIMIT_STORES).default('redis'),
+    SMTP_HOST: z.string().optional(),
+    SMTP_PORT: z.coerce.number().int().positive().default(587),
+    SMTP_SECURE: booleanFromString.default(false),
+    SMTP_USER: z.string().optional(),
+    SMTP_PASS: z.string().optional(),
+    MAIL_FROM: z.string().default('Sentodo MFB <no-reply@sentodo.example>'),
 
-  SANDBOX_FUNDING_ENABLED: booleanFromString.default(false),
-  QUEUE_CONCURRENCY: z.coerce.number().int().positive().default(5),
-});
+    /** Mock phone OTP list: any code in this list verifies a phone number. */
+    MOCK_PHONE_CODES: z.string().default('123456,654321,246810,135790'),
+    VERIFICATION_CODE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+    VERIFICATION_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+
+    RATE_LIMIT_ALGORITHM: z.enum(RATE_LIMIT_ALGORITHMS).default('token-bucket'),
+    RATE_LIMIT_STORE: z.enum(RATE_LIMIT_STORES).default('redis'),
+
+    SANDBOX_FUNDING_ENABLED: booleanFromString.default(false),
+    QUEUE_CONCURRENCY: z.coerce.number().int().positive().default(5),
+  })
+  .superRefine((env, ctx) => {
+    // TLS is on but no CA was supplied — Aiven-style verification cannot work.
+    if (env.DATABASE_SSL && !env.DATABASE_CA_CERT) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['DATABASE_CA_CERT'],
+        message: 'required when DATABASE_SSL is true (inline PEM or path to a .pem file)',
+      });
+    }
+  });
 
 /** Strongly typed, validated application configuration. */
 export interface AppConfig {
@@ -58,7 +94,7 @@ export interface AppConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error' | 'silent';
   trustProxy: number;
   corsOrigins: string[];
-  databaseUrl: string;
+  database: DatabaseConfig;
   mongodbUri: string;
   redisUrl: string;
   jwtSecret: string;
@@ -103,7 +139,15 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     logLevel: env.LOG_LEVEL,
     trustProxy: env.TRUST_PROXY,
     corsOrigins: csv(env.CORS_ORIGINS),
-    databaseUrl: env.DATABASE_URL,
+    database: {
+      host: env.DATABASE_HOST,
+      port: env.DATABASE_PORT,
+      user: env.DATABASE_USER,
+      password: env.DATABASE_PASSWORD,
+      name: env.DATABASE_NAME,
+      ssl: env.DATABASE_SSL,
+      caCert: env.DATABASE_CA_CERT,
+    },
     mongodbUri: env.MONGODB_URI,
     redisUrl: env.REDIS_URL,
     jwtSecret: env.JWT_SECRET,
