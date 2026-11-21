@@ -208,7 +208,7 @@ describe('login and tokens', () => {
       await request(ctx.app).post(`${api}/auth/verify-token`).send({ token: 'not-a-real-token' }).expect(401);
       await request(ctx.app).post(`${api}/auth/verify-token`).send({ token: `${user.token}x` }).expect(401);
 
-      const expired = jwt.sign({ type: 'INDIVIDUAL' }, 'test-jwt-secret-0123456789', { subject: user.profileId, expiresIn: -10 });
+      const expired = jwt.sign({ type: 'INDIVIDUAL' }, 'test-jwt-secret-4601456789', { subject: user.profileId, expiresIn: -10 });
       await request(ctx.app).post(`${api}/auth/verify-token`).send({ token: expired }).expect(401);
 
       const wrongSecret = jwt.sign({ type: 'INDIVIDUAL' }, 'a-different-secret-value', { subject: user.profileId, expiresIn: 60 });

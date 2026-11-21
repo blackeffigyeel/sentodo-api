@@ -5,7 +5,7 @@ import { adjustBalance, MAX_LOCK_ATTEMPTS } from '../../src/services/ledger.help
 
 async function setup(balance = 10_000) {
   const repositories = createMemoryRepositories();
-  const account = await repositories.accounts.create({ accountNumber: '0123456789', profileId: 'p1', name: 'Test' });
+  const account = await repositories.accounts.create({ accountNumber: '4601456789', profileId: 'p1', name: 'Test' });
   const funded = balance > 0 ? await repositories.accounts.updateBalance(account.id, account.version, balance) : account;
   return { repositories, account: funded };
 }

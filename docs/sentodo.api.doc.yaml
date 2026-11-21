@@ -810,7 +810,7 @@ paths:
         schema:
           type: string
           pattern: ^\d{10}$
-          example: 0123456789
+          example: 4601456789
       responses:
         '200':
           description: Resolved
@@ -873,7 +873,7 @@ paths:
             example:
               fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
               bankCode: 090
-              accountNumber: 0123456789
+              accountNumber: 4601456789
               amount: 250000
               narration: Rent share
       responses:
@@ -929,7 +929,7 @@ paths:
             example:
               fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
               bankCode: 090
-              accountNumber: 0123456789
+              accountNumber: 4601456789
               amount: 250000
               narration: Rent share
       responses:
@@ -1334,7 +1334,7 @@ paths:
                 iuc:
                   type: string
                   pattern: ^\d{10}$
-                  example: '7012345678'
+                  example: '7460145678'
               required:
               - operator
               - iuc
@@ -1798,7 +1798,7 @@ paths:
                   - GOTV
                 iuc:
                   type: string
-                  example: '7012345678'
+                  example: '7460145678'
                 bouquetCode:
                   type: string
                   example: dstv-compact
@@ -1810,7 +1810,7 @@ paths:
             example:
               fromAccountId: 7b1f6c0e-5a52-4f0e-9d0b-0c3f7f1a1a11
               operator: DSTV
-              iuc: '7012345678'
+              iuc: '7460145678'
               bouquetCode: dstv-compact
       responses:
         '202':
@@ -2566,7 +2566,7 @@ components:
         accountNumber:
           type: string
           pattern: ^\d{10}$
-          example: 0123456789
+          example: 4601456789
         name:
           type: string
         currency:

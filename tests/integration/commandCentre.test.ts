@@ -56,7 +56,7 @@ describe('PATCH /command-centre/states/:key', () => {
     await request(ctx.app)
       .post(`${api}/bills/tv/validate`)
       .set(bearer(user.token))
-      .send({ operator: 'DSTV', iuc: '7012345678' })
+      .send({ operator: 'DSTV', iuc: '7460145678' })
       .expect(503);
   });
 

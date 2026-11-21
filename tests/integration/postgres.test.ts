@@ -66,7 +66,7 @@ const api = '/api/v1';
   const newProfile = (n = 1) =>
     repos.profiles.create({ type: 'INDIVIDUAL', email: `user${n}@example.com`, phone: `0803000000${n}`, passwordHash: 'hash', firstName: 'A', lastName: 'B' });
 
-  const newAccount = async (profileId: string, number = '0123456789', balance = 0) => {
+  const newAccount = async (profileId: string, number = '4601456789', balance = 0) => {
     const account = await repos.accounts.create({ accountNumber: number, profileId, name: 'Main' });
     return balance > 0 ? repos.accounts.updateBalance(account.id, account.version, balance) : account;
   };
@@ -99,7 +99,7 @@ const api = '/api/v1';
   describe('accounts and optimistic locking', () => {
     it('stores balances as BigInt and returns safe integers', async () => {
       const profile = await newProfile();
-      const account = await newAccount(profile.id, '0123456789', 123_456_789);
+      const account = await newAccount(profile.id, '4601456789', 123_456_789);
       expect(account.balance).toBe(123_456_789);
       expect(typeof account.balance).toBe('number');
       expect(account.version).toBe(1);
@@ -107,7 +107,7 @@ const api = '/api/v1';
 
     it('rejects a stale version with ConcurrencyConflictError and leaves the balance alone', async () => {
       const profile = await newProfile();
-      const account = await newAccount(profile.id, '0123456789', 1_000);
+      const account = await newAccount(profile.id, '4601456789', 1_000);
       await repos.accounts.updateBalance(account.id, account.version, 900);
       await expect(repos.accounts.updateBalance(account.id, account.version, 500)).rejects.toThrow(ConcurrencyConflictError);
       expect((await repos.accounts.findById(account.id))?.balance).toBe(900);
@@ -116,20 +116,20 @@ const api = '/api/v1';
 
     it('rejects duplicate account numbers', async () => {
       const profile = await newProfile();
-      await newAccount(profile.id, '0123456789');
-      await expect(newAccount(profile.id, '0123456789')).rejects.toThrow(ConflictError);
+      await newAccount(profile.id, '4601456789');
+      await expect(newAccount(profile.id, '4601456789')).rejects.toThrow(ConflictError);
     });
 
     it('is protected by database CHECK constraints even if application code is wrong', async () => {
       const profile = await newProfile();
-      const account = await newAccount(profile.id, '0123456789', 100);
+      const account = await newAccount(profile.id, '4601456789', 100);
       await expect(repos.accounts.updateBalance(account.id, account.version, -1)).rejects.toThrow();
       await expect(repos.accounts.create({ accountNumber: '12345', profileId: profile.id, name: 'Bad' })).rejects.toThrow();
     });
 
     it('never loses an update when many real connections race (no lost money)', async () => {
       const profile = await newProfile();
-      const account = await newAccount(profile.id, '0123456789', 1_000_000);
+      const account = await newAccount(profile.id, '4601456789', 1_000_000);
       const tx = await repos.transactions.create({
         reference: 'REF-RACE', profileId: profile.id, accountId: account.id, type: 'AIRTIME', amount: 1, fee: 0, discount: 0, totalDebit: 1, feeWaived: false,
       });
@@ -153,7 +153,7 @@ const api = '/api/v1';
   describe('unit of work', () => {
     it('commits everything together', async () => {
       const profile = await newProfile();
-      const account = await newAccount(profile.id, '0123456789', 5_000);
+      const account = await newAccount(profile.id, '4601456789', 5_000);
       await repos.unitOfWork.run(async (r) => {
         const tx = await r.transactions.create({ reference: 'REF-OK', profileId: profile.id, accountId: account.id, type: 'DATA', amount: 1_000, fee: 0, discount: 0, totalDebit: 1_000, feeWaived: false });
         await adjustBalance(r, account.id, 1_000, { transactionId: tx.id, direction: 'DEBIT', description: 'x' });
@@ -164,7 +164,7 @@ const api = '/api/v1';
 
     it('rolls back the transaction row, balance and ledger when anything fails', async () => {
       const profile = await newProfile();
-      const account = await newAccount(profile.id, '0123456789', 5_000);
+      const account = await newAccount(profile.id, '4601456789', 5_000);
       await expect(
         repos.unitOfWork.run(async (r) => {
           const tx = await r.transactions.create({ reference: 'REF-ROLL', profileId: profile.id, accountId: account.id, type: 'DATA', amount: 1_000, fee: 0, discount: 0, totalDebit: 1_000, feeWaived: false });
@@ -259,7 +259,7 @@ const api = '/api/v1';
     it('registers, verifies, funds, transfers p2p and settles through the queue', async () => {
       const config = loadConfig({
         NODE_ENV: 'test', DATABASE_URL: url!, MONGODB_URI: 'mongodb://unused', REDIS_URL: 'redis://unused',
-        JWT_SECRET: 'test-jwt-secret-0123456789', ADMIN_SERVICE_TOKEN: 'test-service-token-0123456789', LOG_LEVEL: 'silent',
+        JWT_SECRET: 'test-jwt-secret-4601456789', ADMIN_SERVICE_TOKEN: 'test-service-token-4601456789', LOG_LEVEL: 'silent',
       });
       const emails = new RecordingEmailSender();
       const transactionQueue = new InMemoryJobQueue<TransactionJob>();

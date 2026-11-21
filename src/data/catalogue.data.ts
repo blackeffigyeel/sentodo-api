@@ -164,7 +164,7 @@ export interface MockIdentity {
 export const MOCK_IDENTITIES: readonly MockIdentity[] = [
   { bvn: '22222222221', firstName: 'Adaeze', lastName: 'Okonkwo', dateOfBirth: '1992-03-14', phone: '08031234567' },
   { bvn: '22222222222', firstName: 'Tunde', lastName: 'Bakare', dateOfBirth: '1988-11-02', phone: '08122223333' },
-  { bvn: '22222222223', firstName: 'Fatima', lastName: 'Bello', dateOfBirth: '1995-07-21', phone: '09012345678' },
+  { bvn: '22222222223', firstName: 'Fatima', lastName: 'Bello', dateOfBirth: '1995-07-21', phone: '09460145678' },
   { bvn: '22222222224', firstName: 'Chinedu', lastName: 'Eze', dateOfBirth: '1990-01-30', phone: '07066778899' },
   { bvn: '22222222225', firstName: 'Ngozi', lastName: 'Adeyemi', dateOfBirth: '1985-09-09', phone: '08099887766' },
 ];
@@ -172,12 +172,12 @@ export const MOCK_IDENTITIES: readonly MockIdentity[] = [
 /** Mock TV smart cards. Any other 10-digit IUC is reported as not found. */
 export const MOCK_TV_CUSTOMERS: Readonly<Record<TvOperator, ReadonlyArray<{ iuc: string; name: string }>>> = {
   DSTV: [
-    { iuc: '7012345678', name: 'OKONKWO ADAEZE C' },
+    { iuc: '7460145678', name: 'OKONKWO ADAEZE C' },
     { iuc: '7023456789', name: 'BAKARE TUNDE O' },
     { iuc: '7034567890', name: 'BELLO FATIMA A' },
   ],
   GOTV: [
-    { iuc: '4012345678', name: 'EZE CHINEDU P' },
+    { iuc: '4460145678', name: 'EZE CHINEDU P' },
     { iuc: '4023456789', name: 'ADEYEMI NGOZI K' },
   ],
 };

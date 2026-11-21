@@ -166,8 +166,8 @@ describe('TV (the only category with customer validation)', () => {
 
   it('reports unknown cards as 404 and malformed IUC numbers as 400 (must be exactly 10 digits)', async () => {
     await request(ctx.app).post(`${api}/bills/tv/validate`).set(bearer(user.token)).send({ operator: 'DSTV', iuc: '9999999999' }).expect(404);
-    await request(ctx.app).post(`${api}/bills/tv/validate`).set(bearer(user.token)).send({ operator: 'DSTV', iuc: '701234567' }).expect(400);
-    await request(ctx.app).post(`${api}/bills/tv/validate`).set(bearer(user.token)).send({ operator: 'DSTV', iuc: '70123456789' }).expect(400);
+    await request(ctx.app).post(`${api}/bills/tv/validate`).set(bearer(user.token)).send({ operator: 'DSTV', iuc: '746014567' }).expect(400);
+    await request(ctx.app).post(`${api}/bills/tv/validate`).set(bearer(user.token)).send({ operator: 'DSTV', iuc: '74601456789' }).expect(400);
   });
 
   it('has no validation endpoint for other categories', async () => {

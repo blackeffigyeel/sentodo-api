@@ -270,7 +270,7 @@ describe('external transfers (other banks)', () => {
   });
 
   it('resolves the account name, debits at once and sends through the provider from the queue', async () => {
-    const res = await transfer(alice, { bankCode: '058', accountNumber: '0123456789', amount: 200_000 }).expect(202);
+    const res = await transfer(alice, { bankCode: '058', accountNumber: '4601456789', amount: 200_000 }).expect(202);
     const tx = res.body.data.transaction;
     expect(tx).toMatchObject({ type: 'EXTERNAL_TRANSFER', status: 'PROCESSING', counterparty: { bank: 'Guaranty Trust Bank' } });
     expect(tx.counterparty.name).toMatch(/^[A-Z ]+$/);
@@ -284,7 +284,7 @@ describe('external transfers (other banks)', () => {
 
   it('refunds everything, fee included, when the other bank declines', async () => {
     await useFreeAllowance(alice, 20);
-    const res = await transfer(alice, { bankCode: '058', accountNumber: '0123450000', amount: 200_000 }).expect(202);
+    const res = await transfer(alice, { bankCode: '058', accountNumber: '4601450000', amount: 200_000 }).expect(202);
     expect(await balanceOf(ctx, alice.accountId)).toBe(5_000_000 - 201_075);
 
     await ctx.drain();
@@ -296,14 +296,14 @@ describe('external transfers (other banks)', () => {
   });
 
   it('gives a failed free transfer back to the monthly allowance', async () => {
-    await transfer(alice, { bankCode: '058', accountNumber: '0123450000' }).expect(202);
+    await transfer(alice, { bankCode: '058', accountNumber: '4601450000' }).expect(202);
     await ctx.drain();
     const used = await ctx.repositories.transactions.countFreeTransfersSince(alice.profileId, new Date(0));
     expect(used).toBe(0);
   });
 
   it('retries instead of refunding when the provider is switched off mid-flight', async () => {
-    const res = await transfer(alice, { bankCode: '058', accountNumber: '0123456789' }).expect(202);
+    const res = await transfer(alice, { bankCode: '058', accountNumber: '4601456789' }).expect(202);
     const id = res.body.data.transaction.id as string;
 
     await ctx.container.commandCentre.setState('provider:mock-nip-transfer', false, { updatedBy: 'ops' });
@@ -318,13 +318,13 @@ describe('external transfers (other banks)', () => {
 
   it('refuses new external transfers while the provider is off', async () => {
     await ctx.container.commandCentre.setState('provider:mock-nip-transfer', false, { updatedBy: 'ops' });
-    const res = await transfer(alice, { bankCode: '058', accountNumber: '0123456789' }).expect(503);
+    const res = await transfer(alice, { bankCode: '058', accountNumber: '4601456789' }).expect(503);
     expect(res.body.data.provider).toBe('mock-nip-transfer');
   });
 
   it('rejects accounts the provider cannot resolve and unknown bank codes', async () => {
-    await transfer(alice, { bankCode: '058', accountNumber: '0123459999' }).expect(502);
-    await transfer(alice, { bankCode: '777', accountNumber: '0123456789' }).expect(400);
+    await transfer(alice, { bankCode: '058', accountNumber: '4601459999' }).expect(502);
+    await transfer(alice, { bankCode: '777', accountNumber: '4601456789' }).expect(400);
     expect(await balanceOf(ctx, alice.accountId)).toBe(5_000_000);
   });
 });
@@ -345,7 +345,7 @@ describe('banks and name enquiry', () => {
 
   it('resolves other banks through the provider', async () => {
     const a = await registerIndividual(ctx);
-    const res = await request(ctx.app).get(`${api}/banks/resolve?bankCode=044&accountNumber=0123456789`).set(bearer(a.token)).expect(200);
+    const res = await request(ctx.app).get(`${api}/banks/resolve?bankCode=044&accountNumber=4601456789`).set(bearer(a.token)).expect(200);
     expect(res.body.data).toMatchObject({ isSentodo: false, bankName: 'Access Bank' });
   });
 

@@ -77,7 +77,7 @@ Networks fail. If a request times out you cannot know whether it was processed. 
 ```bash
 curl -X POST https://api.example.com/api/v1/bills/airtime \
   -H "x-api-key: $SENTODO_KEY" -H "Content-Type: application/json" \
-  -H "Idempotency-Key: payout-2026-11-05-000123" \
+  -H "Idempotency-Key: payout-2026-11-05-004601" \
   -d '{ "fromAccountId": "7b1f6c0e-…", "network": "MTN", "phone": "08031234567", "amount": 100000 }'
 ```
 
@@ -101,7 +101,7 @@ GET  /transactions/{id}      →  200  status: SUCCESS | FAILED
 
 ### Send money
 
-1. (Optional) Name enquiry: `GET /banks/resolve?bankCode=058&accountNumber=0123456789` returns the account holder's name. Show it to your user before sending.
+1. (Optional) Name enquiry: `GET /banks/resolve?bankCode=058&accountNumber=4601456789` returns the account holder's name. Show it to your user before sending.
 2. (Optional) `POST /transfers/quote` shows the fee and the total debit.
 3. `POST /transfers` with `fromAccountId`, `bankCode`, `accountNumber`, `amount` (kobo) and an `Idempotency-Key`.
 
@@ -127,8 +127,8 @@ Only TV supports customer validation. Show the customer name before charging:
 ```bash
 curl -X POST https://api.example.com/api/v1/bills/tv/validate \
   -H "x-api-key: $SENTODO_KEY" -H "Content-Type: application/json" \
-  -d '{ "operator": "DSTV", "iuc": "7012345678" }'
-# → { "success": true, "data": { "operator": "DSTV", "iuc": "7012345678", "customerName": "OKONKWO ADAEZE C" } }
+  -d '{ "operator": "DSTV", "iuc": "7460145678" }'
+# → { "success": true, "data": { "operator": "DSTV", "iuc": "7460145678", "customerName": "OKONKWO ADAEZE C" } }
 ```
 
 An unknown card returns `404`; an IUC that is not exactly 10 digits returns `400`. A purchase for an unknown card is rejected without charging you.
@@ -159,7 +159,7 @@ Limits are applied **per API key**, so one noisy key does not affect another. Re
 ## 9. Testing in this environment
 
 * All providers are simulated. A **customer number or account number ending in `0000` is declined** by the provider (the transaction becomes `FAILED` and is refunded). An account number ending in `9999` cannot be resolved.
-* Test smart cards: DStv `7012345678`, `7023456789`, `7034567890`; GOtv `4012345678`, `4023456789`.
+* Test smart cards: DStv `7460145678`, `7023456789`, `7034567890`; GOtv `4460145678`, `4023456789`.
 * Test BVNs (individuals must match the name): `22222222221` Adaeze Okonkwo, `22222222222` Tunde Bakare, `22222222223` Fatima Bello, `22222222224` Chinedu Eze, `22222222225` Ngozi Adeyemi. Corporate profiles accept any listed BVN.
 * Test money: if an operator has switched on **sandbox funding**, `POST /accounts/{id}/fund` credits test money (up to ₦1,000,000 at a time).
 

@@ -64,15 +64,15 @@ describe('mock providers', () => {
 
   describe('transfers and identity', () => {
     it('resolves account names deterministically', async () => {
-      const a = await registry.transfer.resolveAccount('058', '0123456789');
-      const b = await registry.transfer.resolveAccount('058', '0123456789');
+      const a = await registry.transfer.resolveAccount('058', '4601456789');
+      const b = await registry.transfer.resolveAccount('058', '4601456789');
       expect(a).toEqual(b);
       expect(a.accountName.length).toBeGreaterThan(3);
     });
 
     it('fails to resolve numbers ending in 9999 and declines sends to 0000', async () => {
-      await expect(registry.transfer.resolveAccount('058', '0123459999')).rejects.toThrow(IntegrationError);
-      await expect(registry.transfer.send({ reference: 'r', amount: 1, bankCode: '058', accountNumber: '0123450000', accountName: 'X' })).rejects.toThrow(IntegrationError);
+      await expect(registry.transfer.resolveAccount('058', '4601459999')).rejects.toThrow(IntegrationError);
+      await expect(registry.transfer.send({ reference: 'r', amount: 1, bankCode: '058', accountNumber: '4601450000', accountName: 'X' })).rejects.toThrow(IntegrationError);
     });
 
     it('looks up BVNs from the data list', async () => {

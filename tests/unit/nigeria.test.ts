@@ -19,13 +19,13 @@ describe('Nigerian conventions', () => {
       ['2348031234567', '08031234567'],
       ['0803 123 4567', '08031234567'],
       ['0803-123-4567', '08031234567'],
-      ['07012345678', '07012345678'],
-      ['09012345678', '09012345678'],
+      ['07460145678', '07460145678'],
+      ['09460145678', '09460145678'],
     ])('normalises %s', (input, expected) => {
       expect(normalisePhone(input)).toBe(expected);
     });
 
-    it.each(['12345', '0803123456', '080312345678', '09212345678', '06012345678', '+2348031234', 'abc', ''])(
+    it.each(['12345', '0803123456', '080312345678', '09212345678', '06460145678', '+2348031234', 'abc', ''])(
       'rejects %p',
       (input) => {
         expect(normalisePhone(input)).toBeNull();
@@ -43,17 +43,17 @@ describe('Nigerian conventions', () => {
 
   describe('decoder and meter numbers', () => {
     it('requires exactly 10 digits for IUC numbers', () => {
-      expect(isValidIucNumber('7012345678')).toBe(true);
-      expect(isValidIucNumber('701234567')).toBe(false);
-      expect(isValidIucNumber('70123456789')).toBe(false);
-      expect(isValidIucNumber('70123abcde')).toBe(false);
+      expect(isValidIucNumber('7460145678')).toBe(true);
+      expect(isValidIucNumber('746014567')).toBe(false);
+      expect(isValidIucNumber('74601456789')).toBe(false);
+      expect(isValidIucNumber('74601abcde')).toBe(false);
     });
 
     it('accepts 11 to 13 digit meter numbers', () => {
       expect(isValidMeterNumber('12345678901')).toBe(true);
-      expect(isValidMeterNumber('1234567890123')).toBe(true);
+      expect(isValidMeterNumber('1234567894601')).toBe(true);
       expect(isValidMeterNumber('1234567890')).toBe(false);
-      expect(isValidMeterNumber('12345678901234')).toBe(false);
+      expect(isValidMeterNumber('12345678946014')).toBe(false);
     });
   });
 
@@ -79,8 +79,8 @@ describe('Nigerian conventions', () => {
     });
 
     it('validates only the 10-digit shape for other banks', () => {
-      expect(isTenDigitAccountNumber('0123456789')).toBe(true);
-      expect(isTenDigitAccountNumber('012345678')).toBe(false);
+      expect(isTenDigitAccountNumber('4601456789')).toBe(true);
+      expect(isTenDigitAccountNumber('460145678')).toBe(false);
       expect(isValidNuban('abc', '090')).toBe(false);
     });
   });

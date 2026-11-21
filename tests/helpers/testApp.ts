@@ -13,13 +13,13 @@ import { createMemoryRepositories } from '../../src/repositories/memory/memory.r
 import { createApp } from '../../src/express.app';
 import { silentLogger } from '../../src/utils/logger.util';
 
-export const SERVICE_TOKEN = 'test-service-token-0123456789';
+export const SERVICE_TOKEN = 'test-service-token-4601456789';
 
 /** A person who can pass identity verification, using the mock BVN registry. */
 export const PEOPLE = [
   { firstName: 'Adaeze', lastName: 'Okonkwo', bvn: '22222222221', phone: '08031234567', email: 'adaeze@example.com' },
   { firstName: 'Tunde', lastName: 'Bakare', bvn: '22222222222', phone: '08122223333', email: 'tunde@example.com' },
-  { firstName: 'Fatima', lastName: 'Bello', bvn: '22222222223', phone: '09012345678', email: 'fatima@example.com' },
+  { firstName: 'Fatima', lastName: 'Bello', bvn: '22222222223', phone: '09460145678', email: 'fatima@example.com' },
 ] as const;
 
 export interface TestContext {
@@ -56,7 +56,7 @@ export async function createTestContext(
     DATABASE_URL: 'postgresql://unused',
     MONGODB_URI: 'mongodb://unused',
     REDIS_URL: 'redis://unused',
-    JWT_SECRET: 'test-jwt-secret-0123456789',
+    JWT_SECRET: 'test-jwt-secret-4601456789',
     ADMIN_SERVICE_TOKEN: SERVICE_TOKEN,
     MOCK_PHONE_CODES: '123456,654321',
     LOG_LEVEL: 'silent',
