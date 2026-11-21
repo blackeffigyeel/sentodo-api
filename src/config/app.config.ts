@@ -75,6 +75,8 @@ const schema = z
 
     SANDBOX_FUNDING_ENABLED: booleanFromString.default(false),
     QUEUE_CONCURRENCY: z.coerce.number().int().positive().default(5),
+    /** true: the API process also runs the queue workers (single-service hosting). false: run `npm run worker` separately. */
+    RUN_WORKER_IN_API: booleanFromString.default(false),
   })
   .superRefine((env, ctx) => {
     // TLS is on but no CA was supplied — Aiven-style verification cannot work.
@@ -117,6 +119,8 @@ export interface AppConfig {
   };
   sandboxFundingEnabled: boolean;
   queueConcurrency: number;
+  /** True when the API process also runs the queue workers. */
+  runWorkerInApi: boolean;
 }
 
 /**
@@ -167,5 +171,6 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     rateLimit: { algorithm: env.RATE_LIMIT_ALGORITHM, store: env.RATE_LIMIT_STORE },
     sandboxFundingEnabled: env.SANDBOX_FUNDING_ENABLED,
     queueConcurrency: env.QUEUE_CONCURRENCY,
+    runWorkerInApi: env.RUN_WORKER_IN_API,
   };
 }

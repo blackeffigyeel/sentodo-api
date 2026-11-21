@@ -3,10 +3,11 @@ import { loadConfig } from './config/app.config';
 import { NodemailerEmailSender } from './integrations/mailer.integration';
 import { connectMongo } from './integrations/mongo.integration';
 import { connectPrisma } from './integrations/prisma.integration';
-import { BullJobQueue, startWorker, type RunningWorker } from './integrations/queue.integration';
+import { BullJobQueue } from './integrations/queue.integration';
 import { connectRedis } from './integrations/redis.integration';
 import { createMockProviderRegistry } from './providers/mock/mock.providers';
 import { QUEUE_NAMES, type EmailJob, type TransactionJob } from './queues/queue.types';
+import { startQueueWorkers } from './queues/queueWorkers.runner';
 import { MongoAuditLogRepository, MongoServiceStateRepository, MongoVerificationCodeRepository } from './repositories/mongo/mongo.repositories';
 import {
   PostgresAccountRepository,
@@ -53,21 +54,17 @@ async function main(): Promise<void> {
     healthChecks: {},
   });
 
-  const workers: RunningWorker[] = [
-    startWorker<TransactionJob>(
-      QUEUE_NAMES.transactions,
-      redis,
-      ({ transactionId }) => container.settlement.settle(transactionId),
-      config.queueConcurrency,
-      logger,
-    ),
-    startWorker<EmailJob>(QUEUE_NAMES.emails, redis, (message) => emailSender.send(message), config.queueConcurrency, logger),
-  ];
-  logger.info('Queue workers started');
+  const workers = startQueueWorkers({
+    redis,
+    settleTransaction: (transactionId) => container.settlement.settle(transactionId),
+    sendEmail: (message) => emailSender.send(message),
+    concurrency: config.queueConcurrency,
+    logger,
+  });
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info('Worker shutting down', { signal });
-    await Promise.allSettled(workers.map((worker) => worker.close()));
+    await workers.close();
     await Promise.allSettled([prisma.$disconnect(), mongo.close(), redis.quit()]);
     process.exit(0);
   };
