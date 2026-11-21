@@ -57,7 +57,7 @@ RUN mkdir -p /app/logs \
 USER app
 
 # Expose the port for the backend server
-EXPOSE 0123
+EXPOSE 3208
 
 # The API. The queue worker runs the same image with: npm run worker
 CMD ["npm", "start"]

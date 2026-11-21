@@ -21,9 +21,9 @@ services:
   api:
     <<: *app
     ports:
-      - "0123:0123"
+      - "3208:3208"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:0123/api/v1/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:3208/api/v1/health"]
       interval: 15s
       timeout: 5s
       retries: 5
