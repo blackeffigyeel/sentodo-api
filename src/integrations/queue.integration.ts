@@ -64,13 +64,20 @@ export function startWorker<T>(
   concurrency: number,
   logger: Logger,
 ): RunningWorker {
+  // BullMQ does not close a connection it was handed, so this copy is closed explicitly in close().
+  const workerConnection = connection.duplicate();
   const worker = new Worker(name, async (job) => handler(job.data as T), {
-    connection: connection.duplicate() as unknown as ConnectionOptions,
+    connection: workerConnection as unknown as ConnectionOptions,
     concurrency,
   });
   worker.on('failed', (job, error) => {
     logger.error('Queue job failed', { queue: name, jobId: job?.id, attemptsMade: job?.attemptsMade, error });
   });
   worker.on('error', (error) => logger.error('Queue worker error', { queue: name, error }));
-  return { close: () => worker.close() };
+  return {
+    close: async () => {
+      await worker.close();
+      await workerConnection.quit().catch(() => workerConnection.disconnect());
+    },
+  };
 }
