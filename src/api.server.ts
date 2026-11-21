@@ -6,10 +6,11 @@ import { createApp } from './express.app';
 import { NodemailerEmailSender } from './integrations/mailer.integration';
 import { connectMongo, pingMongo } from './integrations/mongo.integration';
 import { connectPrisma, pingPrisma } from './integrations/prisma.integration';
-import { BullJobQueue } from './integrations/queue.integration';
+import { BullJobQueue, type RunningWorker } from './integrations/queue.integration';
 import { connectRedis, pingRedis } from './integrations/redis.integration';
 import { createMockProviderRegistry } from './providers/mock/mock.providers';
 import { QUEUE_NAMES, type EmailJob, type TransactionJob } from './queues/queue.types';
+import { startQueueWorkers } from './queues/queueWorkers.runner';
 import { MongoAuditLogRepository, MongoServiceStateRepository, MongoVerificationCodeRepository } from './repositories/mongo/mongo.repositories';
 import {
   PostgresAccountRepository,
@@ -23,7 +24,10 @@ import {
 import type { Repositories } from './repositories/interfaces/repositories.interface';
 import { createLogger } from './utils/logger.util';
 
-/** Starts the HTTP API. Run `queue.worker.ts` separately to process queued jobs. */
+/**
+ * Starts the HTTP API. Queued jobs are processed by `queue.worker.ts`, or by this process itself
+ * when `RUN_WORKER_IN_API=true` (single-service hosting).
+ */
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
@@ -48,13 +52,14 @@ async function main(): Promise<void> {
   const transactionQueue = new BullJobQueue<TransactionJob>(QUEUE_NAMES.transactions, redis);
   const emailQueue = new BullJobQueue<EmailJob>(QUEUE_NAMES.emails, redis);
 
+  const emailSender = new NodemailerEmailSender(config.smtp, logger);
   const container = await createContainer({
     config,
     logger,
     repositories,
     queues: { transactions: transactionQueue, emails: emailQueue },
     providers: createMockProviderRegistry({ mockPhoneCodes: config.mockPhoneCodes, latencyMs: 150 }),
-    emailSender: new NodemailerEmailSender(config.smtp, logger),
+    emailSender,
     redis,
     healthChecks: {
       postgresql: () => pingPrisma(prisma),
@@ -63,6 +68,17 @@ async function main(): Promise<void> {
     },
   });
 
+  let workers: RunningWorker | undefined;
+  if (config.runWorkerInApi) {
+    workers = startQueueWorkers({
+      redis,
+      settleTransaction: (transactionId) => container.settlement.settle(transactionId),
+      sendEmail: (message) => emailSender.send(message),
+      concurrency: config.queueConcurrency,
+      logger,
+    });
+  }
+
   const server: Server = createApp(container).listen(config.port, () => {
     logger.info('Sentodo API listening', { port: config.port, docs: `/docs` });
   });
@@ -70,6 +86,8 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info('Shutting down', { signal });
     server.close();
+    // Stop taking jobs and let active ones finish before the connections they use are closed.
+    await workers?.close();
     await Promise.allSettled([transactionQueue.close(), emailQueue.close(), prisma.$disconnect(), mongo.close(), redis.quit()]);
     process.exit(0);
   };
