@@ -12,7 +12,7 @@ cp .env.example .env        # set JWT_SECRET and ADMIN_SERVICE_TOKEN (16+ charac
 docker compose up --build   # api, worker, postgres, mongo, redis, mailpit
 ```
 
-API: <http://localhost:3208/api/v1> · Docs: <http://localhost:3208/docs> · Verification emails: <http://localhost:8025>
+API: <http://localhost:4601/api/v1> · Docs: <http://localhost:4601/docs> · Verification emails: <http://localhost:8025>
 
 Without Docker: start PostgreSQL, MongoDB and Redis, then `npm ci && npx prisma migrate deploy && npm run dev` and, in a second terminal, `npm run worker`.
 
