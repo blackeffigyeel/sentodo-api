@@ -28,6 +28,12 @@ Without Docker: start PostgreSQL, MongoDB and Redis, then `npm ci && npx prisma 
 
 The PostgreSQL suite runs against a real database when `TEST_DATABASE_URL` points at an empty, migrated test database (skipped otherwise). The Redis rate-limit suite starts its own `redis-server` and needs it installed.
 
+## Running on a single service (no separate worker)
+
+Set `RUN_WORKER_IN_API=true` and the API process also runs the queue workers, so transfers and purchases settle without a second deployment. Leave it `false` (the default) when you run `npm run worker` separately; running both at once is safe, because BullMQ shares the jobs between consumers.
+
+On hosts that put idle services to sleep, jobs wait safely in Redis and resume when the service wakes. A request that arrives while the service is asleep wakes it, and its job is then settled straight away.
+
 ## Layout
 
 ```
