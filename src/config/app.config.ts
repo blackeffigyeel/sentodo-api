@@ -33,7 +33,7 @@ export interface DatabaseConfig {
 const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-    PORT: z.coerce.number().int().positive().default(3208),
+    PORT: z.coerce.number().int().positive().default(4601),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error', 'silent']).default('info'),
     TRUST_PROXY: z.coerce.number().int().min(0).default(1),
     CORS_ORIGINS: z.string().default('*'),
