@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { createContainer } from './app.container';
 import { loadConfig } from './config/app.config';
 import { createApp } from './express.app';
-import { NodemailerEmailSender } from './integrations/mailer.integration';
+import { createEmailSender } from './integrations/emailSender.factory';
 import { connectMongo, pingMongo } from './integrations/mongo.integration';
 import { connectPrisma, pingPrisma } from './integrations/prisma.integration';
 import { BullJobQueue, type RunningWorker } from './integrations/queue.integration';
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   const transactionQueue = new BullJobQueue<TransactionJob>(QUEUE_NAMES.transactions, redis);
   const emailQueue = new BullJobQueue<EmailJob>(QUEUE_NAMES.emails, redis);
 
-  const emailSender = new NodemailerEmailSender(config.smtp, logger);
+  const emailSender = createEmailSender(config, logger);
   const container = await createContainer({
     config,
     logger,

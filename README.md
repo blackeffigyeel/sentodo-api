@@ -34,6 +34,10 @@ Set `RUN_WORKER_IN_API=true` and the API process also runs the queue workers, so
 
 On hosts that put idle services to sleep, jobs wait safely in Redis and resume when the service wakes. A request that arrives while the service is asleep wakes it, and its job is then settled straight away.
 
+## Email
+
+`EMAIL_PROVIDER=smtp` (default) sends through SMTP with Nodemailer. Hosts that block SMTP ports (Render does) can use `EMAIL_PROVIDER=brevo`, which sends through Brevo's HTTPS API. Set `BREVO_API_KEY` and a `BREVO_SENDER_EMAIL` that you have verified in Brevo (see `.env.example`). With Brevo, `MAIL_FROM` is ignored.
+
 ## Layout
 
 ```

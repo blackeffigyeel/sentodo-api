@@ -1,6 +1,6 @@
 import { createContainer } from './app.container';
 import { loadConfig } from './config/app.config';
-import { NodemailerEmailSender } from './integrations/mailer.integration';
+import { createEmailSender } from './integrations/emailSender.factory';
 import { connectMongo } from './integrations/mongo.integration';
 import { connectPrisma } from './integrations/prisma.integration';
 import { BullJobQueue } from './integrations/queue.integration';
@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const mongo = await connectMongo(config.mongodbUri, logger);
   const redis = await connectRedis(config.redisUrl, logger);
 
-  const emailSender = new NodemailerEmailSender(config.smtp, logger);
+  const emailSender = createEmailSender(config, logger);
   const container = await createContainer({
     config,
     logger,

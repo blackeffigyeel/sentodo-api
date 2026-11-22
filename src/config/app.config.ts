@@ -65,6 +65,13 @@ const schema = z
     SMTP_PASS: z.string().optional(),
     MAIL_FROM: z.string().default('Sentodo MFB <no-reply@sentodo.example>'),
 
+    /** smtp: Nodemailer over SMTP. brevo: Brevo's HTTPS API (for hosts that block SMTP ports, e.g. Render). */
+    EMAIL_PROVIDER: z.enum(['smtp', 'brevo']).default('smtp'),
+    BREVO_API_KEY: z.string().optional(),
+    /** A sender address verified in Brevo (Senders, Domains & Dedicated IPs). */
+    BREVO_SENDER_EMAIL: z.string().email().optional(),
+    BREVO_SENDER_NAME: z.string().min(1).default('Sentodo MFB'),
+
     /** Mock phone OTP list: any code in this list verifies a phone number. */
     MOCK_PHONE_CODES: z.string().default('123456,654321,246810,135790'),
     VERIFICATION_CODE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
@@ -79,6 +86,13 @@ const schema = z
     RUN_WORKER_IN_API: booleanFromString.default(false),
   })
   .superRefine((env, ctx) => {
+    if (env.EMAIL_PROVIDER === 'brevo') {
+      for (const key of ['BREVO_API_KEY', 'BREVO_SENDER_EMAIL'] as const) {
+        if (!env[key]) {
+          ctx.addIssue({ code: 'custom', path: [key], message: 'required when EMAIL_PROVIDER is brevo' });
+        }
+      }
+    }
     // TLS is on but no CA was supplied — Aiven-style verification cannot work.
     if (env.DATABASE_SSL && !env.DATABASE_CA_CERT) {
       ctx.addIssue({
@@ -109,6 +123,14 @@ export interface AppConfig {
     user?: string;
     pass?: string;
     from: string;
+  };
+  /** Which email sender to use. */
+  emailProvider: 'smtp' | 'brevo';
+  /** Brevo settings (used when `emailProvider` is "brevo"). */
+  brevo: {
+    apiKey?: string;
+    senderEmail?: string;
+    senderName: string;
   };
   mockPhoneCodes: string[];
   verificationCodeTtlSeconds: number;
@@ -164,6 +186,12 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
       user: env.SMTP_USER,
       pass: env.SMTP_PASS,
       from: env.MAIL_FROM,
+    },
+    emailProvider: env.EMAIL_PROVIDER,
+    brevo: {
+      apiKey: env.BREVO_API_KEY,
+      senderEmail: env.BREVO_SENDER_EMAIL,
+      senderName: env.BREVO_SENDER_NAME,
     },
     mockPhoneCodes: csv(env.MOCK_PHONE_CODES).filter((code) => /^\d{6}$/.test(code)),
     verificationCodeTtlSeconds: env.VERIFICATION_CODE_TTL_SECONDS,
